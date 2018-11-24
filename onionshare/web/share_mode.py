@@ -45,27 +45,12 @@ class ShareModeWeb(object):
         """
         The web app routes for sharing files
         """
-        @self.web.app.route("/<slug_candidate>")
-        def index(slug_candidate):
-            self.web.check_slug_candidate(slug_candidate)
-            return index_logic()
-
         @self.web.app.route("/")
-        def index_public():
-            if not self.common.settings.get('public_mode'):
-                return self.web.error404()
-            return index_logic()
-
-        def index_logic(slug_candidate=''):
+        def index():
             """
             Render the template for the onionshare landing page.
             """
-            self.web.add_request(self.web.REQUEST_LOAD, request.path)
-
-            # Deny new downloads if "Stop After First Download" is checked and there is
-            # currently a download
-            deny_download = not self.web.stay_open and self.download_in_progress
-            if deny_download:
+            if self.download_in_progress:
                 r = make_response(render_template('denied.html'))
                 return self.web.add_security_headers(r)
 
@@ -75,51 +60,26 @@ class ShareModeWeb(object):
             else:
                 self.filesize = self.download_filesize
 
-            if self.web.slug:
-                r = make_response(render_template(
-                    'send.html',
-                    slug=self.web.slug,
-                    file_info=self.file_info,
-                    filename=os.path.basename(self.download_filename),
-                    filesize=self.filesize,
-                    filesize_human=self.common.human_readable_filesize(self.download_filesize),
-                    is_zipped=self.is_zipped))
-            else:
-                # If download is allowed to continue, serve download page
-                r = make_response(render_template(
-                    'send.html',
-                    file_info=self.file_info,
-                    filename=os.path.basename(self.download_filename),
-                    filesize=self.filesize,
-                    filesize_human=self.common.human_readable_filesize(self.download_filesize),
-                    is_zipped=self.is_zipped))
+            # If download is allowed to continue, serve download page
+            r = make_response(render_template(
+                'send.html',
+                file_info=self.file_info,
+                filename=os.path.basename(self.download_filename),
+                filesize=self.filesize,
+                filesize_human=self.common.human_readable_filesize(self.download_filesize),
+                is_zipped=self.is_zipped))
             return self.web.add_security_headers(r)
 
-        @self.web.app.route("/<slug_candidate>/download")
-        def download(slug_candidate):
-            self.web.check_slug_candidate(slug_candidate)
-            return download_logic()
-
         @self.web.app.route("/download")
-        def download_public():
-            if not self.common.settings.get('public_mode'):
-                return self.web.error404()
-            return download_logic()
-
-        def download_logic(slug_candidate=''):
+        def download():
             """
             Download the zip file.
             """
             # Deny new downloads if "Stop After First Download" is checked and there is
             # currently a download
-            deny_download = not self.web.stay_open and self.download_in_progress
-            if deny_download:
+            if self.download_in_progress:
                 r = make_response(render_template('denied.html'))
                 return self.web.add_security_headers(r)
-
-            # Each download has a unique id
-            download_id = self.download_count
-            self.download_count += 1
 
             # Prepare some variables to use inside generate() function below
             # which is outside of the request context
@@ -137,12 +97,6 @@ class ShareModeWeb(object):
                 file_to_download = self.download_filename
                 self.filesize = self.download_filesize
 
-            # Tell GUI the download started
-            self.web.add_request(self.web.REQUEST_STARTED, path, {
-                'id': download_id,
-                'use_gzip': use_gzip
-            })
-
             basename = os.path.basename(self.download_filename)
 
             def generate():
@@ -150,8 +104,7 @@ class ShareModeWeb(object):
                 self.client_cancel = False
 
                 # Starting a new download
-                if not self.web.stay_open:
-                    self.download_in_progress = True
+                self.download_in_progress = True
 
                 chunk_size = 102400  # 100kb
 
@@ -161,9 +114,6 @@ class ShareModeWeb(object):
                 while not self.web.done:
                     # The user has canceled the download, so stop serving the file
                     if self.client_cancel:
-                        self.web.add_request(self.web.REQUEST_CANCELED, path, {
-                            'id': download_id
-                        })
                         break
 
                     chunk = fp.read(chunk_size)
@@ -173,42 +123,26 @@ class ShareModeWeb(object):
                         try:
                             yield chunk
 
-                            # tell GUI the progress
                             downloaded_bytes = fp.tell()
                             percent = (1.0 * downloaded_bytes / self.filesize) * 100
 
-                            # only output to stdout if running onionshare in CLI mode, or if using Linux (#203, #304)
-                            if not self.web.is_gui or self.common.platform == 'Linux' or self.common.platform == 'BSD':
-                                sys.stdout.write(
-                                    "\r{0:s}, {1:.2f}%          ".format(self.common.human_readable_filesize(downloaded_bytes), percent))
-                                sys.stdout.flush()
-
-                            self.web.add_request(self.web.REQUEST_PROGRESS, path, {
-                                'id': download_id,
-                                'bytes': downloaded_bytes
-                                })
+                            sys.stdout.write("\r{0:s}, {1:.2f}%          ".format(self.common.human_readable_filesize(downloaded_bytes), percent))
+                            sys.stdout.flush()
                             self.web.done = False
                         except:
                             # looks like the download was canceled
                             self.web.done = True
                             canceled = True
 
-                            # tell the GUI the download has canceled
-                            self.web.add_request(self.web.REQUEST_CANCELED, path, {
-                                'id': download_id
-                            })
-
                 fp.close()
 
-                if self.common.platform != 'Darwin':
-                    sys.stdout.write("\n")
+                sys.stdout.write("\n")
 
                 # Download is finished
-                if not self.web.stay_open:
-                    self.download_in_progress = False
+                self.download_in_progress = False
 
                 # Close the server, if necessary
-                if not self.web.stay_open and not canceled:
+                if not canceled:
                     print(strings._("closing_automatically"))
                     self.web.running = False
                     try:
@@ -232,8 +166,8 @@ class ShareModeWeb(object):
 
     def set_file_info(self, filenames, processed_size_callback=None):
         """
-        Using the list of filenames being shared, fill in details that the web
         page will need to display. This includes zipping up the file in order to
+        Using the list of filenames being shared, fill in details that the web
         get the zip file's name and size.
         """
         self.common.log("ShareModeWeb", "set_file_info")

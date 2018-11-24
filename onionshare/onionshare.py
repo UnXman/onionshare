@@ -21,17 +21,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import os, shutil
 
 from . import common, strings
-from .onion import TorTooOld, TorErrorProtocolError
-from .common import ShutdownTimer
 
 class OnionShare(object):
     """
     OnionShare is the main application class. Pass in options and run
     start_onion_service and it will do the magic.
     """
-    def __init__(self, common, onion, local_only=False, shutdown_timeout=0):
+    def __init__(self, common, onion):
         self.common = common
-
         self.common.log('OnionShare', '__init__')
 
         # The Onion object
@@ -44,14 +41,6 @@ class OnionShare(object):
 
         # files and dirs to delete on shutdown
         self.cleanup_filenames = []
-
-        # do not use tor -- for development
-        self.local_only = local_only
-
-        # optionally shut down after N hours
-        self.shutdown_timeout = shutdown_timeout
-        # init timing thread
-        self.shutdown_timer = None
 
     def set_stealth(self, stealth):
         self.common.log('OnionShare', 'set_stealth', 'stealth={}'.format(stealth))
@@ -76,13 +65,6 @@ class OnionShare(object):
 
         if not self.port:
             self.choose_port()
-
-        if self.shutdown_timeout > 0:
-            self.shutdown_timer = ShutdownTimer(self.common, self.shutdown_timeout)
-
-        if self.local_only:
-            self.onion_host = '127.0.0.1:{0:d}'.format(self.port)
-            return
 
         self.onion_host = self.onion.start_onion_service(self.port)
 

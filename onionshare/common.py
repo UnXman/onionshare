@@ -36,8 +36,8 @@ class Common(object):
     """
     The Common object is shared amongst all parts of OnionShare.
     """
-    def __init__(self, debug=False):
-        self.debug = debug
+    def __init__(self):
+        self.debug = True
 
         # The platform OnionShare is running on
         self.platform = platform.system()
@@ -458,21 +458,3 @@ class Common(object):
                 if not os.path.islink(fp):
                     total_size += os.path.getsize(fp)
         return total_size
-
-
-class ShutdownTimer(threading.Thread):
-    """
-    Background thread sleeps t hours and returns.
-    """
-    def __init__(self, common, time):
-        threading.Thread.__init__(self)
-
-        self.common = common
-
-        self.setDaemon(True)
-        self.time = time
-
-    def run(self):
-        self.common.log('Shutdown Timer', 'Server will shut down after {} seconds'.format(self.time))
-        time.sleep(self.time)
-        return 1
