@@ -46,8 +46,6 @@ class Onion(object):
         self.common = common
         self.common.log('Onion', '__init__')
         self.service_id = None
-        self.tor_proc = None
-        self.connected_to_tor = False
 
     def connect(self):
         self.common.log('Onion', 'connect')
@@ -56,7 +54,6 @@ class Onion(object):
         # Connect tor controller to Tor Browser's control port
         self.c = Controller.from_port(port=9151)
         self.c.authenticate()
-        self.connected_to_tor = True
 
         # Does this version of Tor support next-gen ('v3') onions?
         self.tor_version = self.c.get_version().version_str
@@ -97,23 +94,6 @@ class Onion(object):
                     self.common.log('Onion', 'cleanup', 'could not remove onion {}.. moving on anyway'.format(onion))
                     pass
             self.service_id = None
-
-            # Stop tor process
-            if self.tor_proc:
-                self.tor_proc.terminate()
-                time.sleep(0.2)
-                if not self.tor_proc.poll():
-                    try:
-                        self.tor_proc.kill()
-                    except:
-                        pass
-                self.tor_proc = None
-
-            # Reset other Onion settings
-            self.connected_to_tor = False
-
-            # Delete the temporary tor data directory
-            self.tor_data_directory.cleanup()
 
         except:
             pass
